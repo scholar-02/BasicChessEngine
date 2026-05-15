@@ -7,3 +7,5 @@ pyarrow>=14.0
 jupyterlab>=4.0
 pytest>=8.0
 tqdm>=4.66
+fastapi>=0.110
+uvicorn>=0.27

@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chess engine demo</title>
+<link rel="stylesheet"
+      href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: #f5f5f4;
+    color: #1c1917;
+  }
+  h1 { margin: 0 0 4px 0; font-size: 22px; font-weight: 600; }
+  .sub { color: #78716c; font-size: 13px; margin-bottom: 20px; }
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  #board { width: 480px; }
+  .panel {
+    width: 280px;
+    background: white;
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .row { margin-bottom: 14px; }
+  label { display: block; font-size: 12px; color: #57534e; margin-bottom: 4px; }
+  select, input[type=range] { width: 100%; }
+  button {
+    padding: 8px 14px;
+    border: 1px solid #d6d3d1;
+    background: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-right: 6px;
+  }
+  button:hover { background: #fafaf9; }
+  button.primary { background: #1c1917; color: white; border-color: #1c1917; }
+  button.primary:hover { background: #292524; }
+  .status {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #f5f5f4;
+    border-radius: 6px;
+    font-size: 13px;
+    min-height: 18px;
+  }
+  .stats {
+    margin-top: 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #57534e;
+    line-height: 1.6;
+  }
+  .stats b { color: #1c1917; }
+  .depth-val { color: #1c1917; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Chess engine demo</h1>
+<div class="sub">negamax + alpha-beta over a linear evaluator &mdash; TudProg semester project</div>
+
+<div class="layout">
+  <div id="board"></div>
+
+  <div class="panel">
+    <div class="row">
+      <button id="newGame" class="primary">New game</button>
+      <button id="flip">Flip board</button>
+    </div>
+
+    <div class="row">
+      <label>You play as</label>
+      <select id="side">
+        <option value="white" selected>White</option>
+        <option value="black">Black</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label>Evaluator</label>
+      <select id="evaluator"></select>
+    </div>
+
+    <div class="row">
+      <label>Search depth: <span id="depthLabel" class="depth-val">3</span></label>
+      <input type="range" id="depth" min="1" max="5" value="3">
+    </div>
+
+    <div class="status" id="status">Your move.</div>
+    <div class="stats" id="stats"></div>
+  </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+<script>
+const game = new Chess();
+let board = null;
+let thinking = false;
+let userColor = 'w';
+
+const $status = $('#status');
+const $stats = $('#stats');
+const $depth = $('#depth');
+const $depthLabel = $('#depthLabel');
+const $evalSel = $('#evaluator');
+const $side = $('#side');
+
+$depth.on('input', () => $depthLabel.text($depth.val()));
+
+function isUsersTurn() {
+  return game.turn() === userColor;
+}
+
+function pieceColorFromCode(piece) {
+  // piece looks like 'wP' or 'bK'
+  return piece.charAt(0);
+}
+
+function onDragStart(_source, piece) {
+  if (thinking) return false;
+  if (game.game_over()) return false;
+  if (pieceColorFromCode(piece) !== game.turn()) return false;
+  if (game.turn() !== userColor) return false;
+  return true;
+}
+
+function onDrop(source, target) {
+  const move = game.move({ from: source, to: target, promotion: 'q' });
+  if (move === null) return 'snapback';
+  refreshStatus();
+  window.setTimeout(askEngine, 100);
+}
+
+function onSnapEnd() {
+  board.position(game.fen());
+}
+
+function refreshStatus(extra) {
+  let msg;
+  if (game.in_checkmate()) {
+    msg = (game.turn() === 'w' ? 'Black' : 'White') + ' wins by checkmate.';
+  } else if (game.in_draw()) {
+    msg = 'Draw.';
+  } else if (game.in_stalemate()) {
+    msg = 'Stalemate.';
+  } else if (game.in_threefold_repetition()) {
+    msg = 'Draw by threefold repetition.';
+  } else if (game.insufficient_material()) {
+    msg = 'Draw by insufficient material.';
+  } else {
+    msg = isUsersTurn() ? 'Your move.' : 'Engine thinking...';
+    if (game.in_check()) msg = 'Check. ' + msg;
+  }
+  if (extra) msg += ' ' + extra;
+  $status.text(msg);
+}
+
+function formatScore(cp) {
+  // cp is white-POV centipawns from search; show as pawns to 2dp
+  const pawns = cp / 100;
+  const sign = pawns >= 0 ? '+' : '';
+  return sign + pawns.toFixed(2);
+}
+
+async function askEngine() {
+  if (game.game_over() || isUsersTurn()) return;
+  thinking = true;
+  refreshStatus();
+  try {
+    const resp = await fetch('/api/engine_move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fen: game.fen(),
+        depth: parseInt($depth.val(), 10),
+        evaluator: $evalSel.val(),
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      $status.text('Engine error: ' + (err.detail || resp.statusText));
+      return;
+    }
+    const data = await resp.json();
+    if (data.move) {
+      const from = data.move.slice(0, 2);
+      const to = data.move.slice(2, 4);
+      const promo = data.move.length > 4 ? data.move[4] : 'q';
+      game.move({ from, to, promotion: promo });
+      board.position(game.fen());
+      $stats.html(
+        '<b>last move:</b> ' + data.move +
+        '<br><b>score:</b> ' + formatScore(data.score) +
+        '<br><b>nodes:</b> ' + data.nodes.toLocaleString()
+      );
+    }
+    refreshStatus();
+  } catch (e) {
+    $status.text('Network error: ' + e.message);
+  } finally {
+    thinking = false;
+    refreshStatus();
+  }
+}
+
+function newGame() {
+  game.reset();
+  userColor = $side.val() === 'white' ? 'w' : 'b';
+  board.orientation(userColor === 'w' ? 'white' : 'black');
+  board.position(game.fen());
+  $stats.html('');
+  refreshStatus();
+  if (!isUsersTurn()) window.setTimeout(askEngine, 200);
+}
+
+async function loadEvaluators() {
+  const resp = await fetch('/api/evaluators');
+  const data = await resp.json();
+  $evalSel.empty();
+  for (const name of data.evaluators) {
+    $evalSel.append($('<option>').val(name).text(name));
+  }
+  $evalSel.val(data.default);
+}
+
+$(async function () {
+  await loadEvaluators();
+  board = Chessboard('board', {
+    draggable: true,
+    position: 'start',
+    pieceTheme:
+      'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+    onDragStart,
+    onDrop,
+    onSnapEnd,
+  });
+  $('#newGame').on('click', newGame);
+  $('#flip').on('click', () => board.flip());
+  $side.on('change', newGame);
+  refreshStatus();
+});
+</script>
+</body>
+</html>

@@ -57,3 +57,15 @@ pytest -q                              # sanity tests
 python scripts\build_dataset.py --n 100 # tiny end-to-end pipeline check
 jupyter lab                             # open the notebooks
 ```
+
+## Web demo
+
+A small FastAPI + chessboard.js page lets you play the engine in a browser:
+
+```powershell
+python -m uvicorn app.server:app --reload
+```
+
+Then open <http://127.0.0.1:8000>. The UI exposes a search-depth slider
+(1-5) and an evaluator picker (learned weights if `data/weights_*.npy`
+are present, else the handcrafted PSQT / material-only baselines).

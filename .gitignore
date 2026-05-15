@@ -7,3 +7,5 @@ data/*.parquet
 data/games/
 .pytest_cache/
 JEGYZETFUZETEK.md
+BESZAMOLO.md
+ELOADAS.md
